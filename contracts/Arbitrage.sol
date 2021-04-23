@@ -57,7 +57,7 @@ contract Arbitrage {
         
         uint allowed = token.allowance(address(this), address(sushiRouter));
 
-        // TODO1 : GET Input Amount of token
+        // STEP1 : GET Input Amount of token
             //Calculate needed input by given output amount (0.01 dai)
         address[] memory reversePath = new address[](2);
         reversePath[0] = path[1];
@@ -68,17 +68,10 @@ contract Arbitrage {
             reversePath
         )[0];
 
-        uint amountOut = UniswapV2Library.getAmountsOut(
-            factory,
-            amountToken,
-            path         
-        )[1];
-
-        // TODO2: SWAP TOKEN to target token
+        // STEP2: SWAP TOKEN to target token
         uint amountReceived = sushiRouter.swapExactTokensForTokens(
             amountToken, 
             amountRequired,
-            // 1,
             path, 
             address(this), 
             deadline
@@ -91,6 +84,9 @@ contract Arbitrage {
         // comaring with flashloan, flashswap seems need not to pay fee bacuase it is included in swap fee.
         targetToken.transfer(msg.sender, amountRequired);
         // targetToken.transfer(msg.sender, amountRequired*100301/100000);
+        
+
+        targetToken.transfer(tx.origin, amountReceived-amountRequired);
 
         emit pathSwapInfo(address(token), address(targetToken), amountToken);
         emit tokenSwapInfo(address(path[0]), address(path[1]), amountToken);
