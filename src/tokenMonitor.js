@@ -18,8 +18,8 @@ const app = {
     uniRouter: null,
     sushiRouter: null,
     arbitrage: null,
-    token0: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[100, 300]],
-    token1: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.1, 0.5]],
+    token0: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.1, 0.8], /*token address*/process.env.UNI_KOVAN],
+    token1: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.01, 0.5], /*token address*/process.env.WETH_KOVAN],
     weth: null,
     gasPrice: null,
     gasLimit: null,
@@ -30,9 +30,8 @@ const app = {
     arbiTx: null,
     txGoneTrough: null,
     init: async () => {
-        
         await app.getWeb3()
-        await app.loadContractInstances()
+        await app.loadContractInstances(app.token0[3], app.token1[3])
         
         let isProfitable
         setInterval(async()=>{
@@ -47,15 +46,13 @@ const app = {
             if (isProfitable) {app.startArbitrage()}
         }, 30000)        
     },
-    loadContractInstances: async () => {
-        app.uniRouter = await new app.web3.eth.Contract(routerJson.abi, "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
-        app.sushiRouter = await new app.web3.eth.Contract(routerJson.abi, "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506")
-        app.arbitrage = await new app.web3.eth.Contract(arbitrageJson.abi, "0x5f1f1BcEF9d283b234487643d996C1C41a87491D")
-        app.token0[0] = await new app.web3.eth.Contract(erc20Json.abi, "0x4f96fe3b7a6cf9725f59d353f723c1bdb64ca6aa") // DAI kovan
-        app.token1[0] = await new app.web3.eth.Contract(erc20Json.abi, "0xd0a1e359811322d97991e03f863a0c30c2cf029c") // WETH kovan
-        // app.token1[0] = await new app.web3.eth.Contract(erc20Json.abi, "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984") //UNI kovan
-        app.weth = await new app.web3.eth.Contract(erc20Json.abi, "0xd0a1e359811322d97991e03f863a0c30c2cf029c")
-        
+    loadContractInstances: async (token0, token1) => {
+        app.uniRouter = await new app.web3.eth.Contract(routerJson.abi, process.env.UNISWAP_ROUTER_KOVAN)
+        app.sushiRouter = await new app.web3.eth.Contract(routerJson.abi, process.env.SUSHISWAP_ROUTER_KOVAN)
+        app.arbitrage = await new app.web3.eth.Contract(arbitrageJson.abi, process.env.ARBI_KOVAN)
+        app.token1[0] = await new app.web3.eth.Contract(erc20Json.abi, token1)
+        app.token0[0] = await new app.web3.eth.Contract(erc20Json.abi, token0) 
+        app.weth = await new app.web3.eth.Contract(erc20Json.abi, process.env.WETH_KOVAN)
     },
     getWeb3: async () => {
         const provider = await new HDWalletProvider(process.env.MNEMONIC, "https://kovan.infura.io/v3/" + process.env.INFURA_API_KEY, 1)
@@ -72,7 +69,6 @@ const app = {
                     app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, app.web3.utils.toWei(app.token0[1]), 0).estimateGas()
                     break
                 case app.token1[0]:
-                    app.token1[1] = bestLoanAmount[0].loanAmount.toString()
                     app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, 0, app.web3.utils.toWei(app.token1[1])).estimateGas()
                     break
             }
@@ -165,7 +161,7 @@ const app = {
             timestamp: nowTime.toString(),
             txHash: app.arbiTx,
             txFee: txFee,
-            profitInWeth: app.txGoneTrough ? app.wethProfit : -(txFee),
+            profitInWeth: app.txGoneTrough ? app.wethProfit-txFee : -(txFee),
         }
         console.log(`Tx succeeded: ${summery.txSucceeded}`)
         console.log(`Tx Hash ${summery.txHash}`)
@@ -188,17 +184,16 @@ const app = {
         let amountRequiredToRefund
         let possibleProfitSet = []
 
-        loanToken0AmountOut = await app.uniRouter.methods.getAmountsOut(app.web3.utils.toWei("1"), [app.token0[0]._address, app.token1[0]._address]).call()
-        selltoken0AmountOut = await app.sushiRouter.methods.getAmountsOut(app.web3.utils.toWei("1"), [app.token0[0]._address, app.token1[0]._address]).call()
+        loanToken0AmountOut = await app.uniRouter.methods.getAmountsOut(app.web3.utils.toWei("0.01"), [app.token0[0]._address, app.token1[0]._address]).call()
+        selltoken0AmountOut = await app.sushiRouter.methods.getAmountsOut(app.web3.utils.toWei("0.01"), [app.token0[0]._address, app.token1[0]._address]).call()
 
         if (loanToken0AmountOut[1] < selltoken0AmountOut[1]) {
             app.loanToken = app.token0[0]
-            console.log("loan token 0, swap to token 1 ")
+            console.log(`loan token 0 (${app.token0[0]._address}),\nswap to token 1 (${app.token1[0]._address}) `)
         } else {
             app.loanToken = app.token1[0]
-            console.log("loan token 1, swap to token 0 ")
+            console.log(`loan token 1 (${app.token1[0]._address}),\nswap to token 0 (${app.token0[0]._address})`)
         }
-        
 
         for (var i=0; i<=4; i++) {
             var loanAmount = 0
@@ -237,5 +232,6 @@ const app = {
 }
 
 app.init()
+
 
 
