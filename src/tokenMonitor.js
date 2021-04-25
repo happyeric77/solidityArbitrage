@@ -18,9 +18,8 @@ const app = {
     uniRouter: null,
     sushiRouter: null,
     arbitrage: null,
-    // token definition: [tokenContractInstance, loan amount]
-    token0: [null, "100"],
-    token1: [null, "0.1"],
+    token0: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[100, 300]],
+    token1: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.1, 0.5]],
     weth: null,
     gasPrice: null,
     gasLimit: null,
@@ -38,11 +37,12 @@ const app = {
         let isProfitable
         setInterval(async()=>{
             try{
+                await app.getBestProfitTokenAmount()
                 await app.fetchGasInfo()
-                isProfitable = await app.assertProfit()
+                isProfitable = await app.assertProfit()                
             } catch(err) {
                 isProfitable = false
-                console.log(`Fail to check, reason: \n${err} `)                
+                console.log(`Fail to check (app.init), reason: \n${err} `)                
             }           
             if (isProfitable) {app.startArbitrage()}
         }, 30000)        
@@ -51,8 +51,9 @@ const app = {
         app.uniRouter = await new app.web3.eth.Contract(routerJson.abi, "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
         app.sushiRouter = await new app.web3.eth.Contract(routerJson.abi, "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506")
         app.arbitrage = await new app.web3.eth.Contract(arbitrageJson.abi, "0x5f1f1BcEF9d283b234487643d996C1C41a87491D")
-        app.token0[0] = await new app.web3.eth.Contract(erc20Json.abi, "0x4f96fe3b7a6cf9725f59d353f723c1bdb64ca6aa")
-        app.token1[0] = await new app.web3.eth.Contract(erc20Json.abi, "0xd0a1e359811322d97991e03f863a0c30c2cf029c")
+        app.token0[0] = await new app.web3.eth.Contract(erc20Json.abi, "0x4f96fe3b7a6cf9725f59d353f723c1bdb64ca6aa") // DAI kovan
+        app.token1[0] = await new app.web3.eth.Contract(erc20Json.abi, "0xd0a1e359811322d97991e03f863a0c30c2cf029c") // WETH kovan
+        // app.token1[0] = await new app.web3.eth.Contract(erc20Json.abi, "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984") //UNI kovan
         app.weth = await new app.web3.eth.Contract(erc20Json.abi, "0xd0a1e359811322d97991e03f863a0c30c2cf029c")
         
     },
@@ -65,20 +66,20 @@ const app = {
     },
     fetchGasInfo: async () => {
         app.gasPrice = await app.web3.eth.getGasPrice()
-        // TODO: Change loan amount from hard coded constant to changable (How to get max. possbile withdrawable)
         try {
-            try {
-                app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, app.web3.utils.toWei(app.token0[1]), 0).estimateGas()
-                app.loanToken = app.token0[0]
-                console.log("loan token 0, swap to token 1 ")
-            } catch {
-                app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, 0, app.web3.utils.toWei(app.token1[1])).estimateGas()
-                app.loanToken = app.token1[0]
-                console.log("loan token 1, swap to token 0 ")
-            }            
-        } catch(err) {
+            switch (app.loanToken) {
+                case app.token0[0]:
+                    app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, app.web3.utils.toWei(app.token0[1]), 0).estimateGas()
+                    break
+                case app.token1[0]:
+                    app.token1[1] = bestLoanAmount[0].loanAmount.toString()
+                    app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, 0, app.web3.utils.toWei(app.token1[1])).estimateGas()
+                    break
+            }
+        } catch (err) {
             console.log(`Error: app.fetchGasInfo.stargArbitrage. Price gap migt be to small Detail: ${err}`)
-        }
+        }        
+
         const transactionFeeInWei = app.gasLimit * app.gasPrice
         app.transactionFee = app.web3.utils.fromWei(transactionFeeInWei.toString())
     },
@@ -87,14 +88,11 @@ const app = {
         let amountRequiredToRefund
 
         switch (app.loanToken) {
-            case app.token0[0]:
-                console.log("loan-token is token0")
-                
+            case app.token0[0]:               
                 amountOut = await app.sushiRouter.methods.getAmountsOut(app.web3.utils.toWei(app.token0[1]), [app.token0[0]._address, app.token1[0]._address]).call()
                 amountRequiredToRefund = await app.uniRouter.methods.getAmountsIn(app.web3.utils.toWei(app.token0[1]), [app.token1[0]._address, app.token0[0]._address]).call()
                 break
             case app.token1[0]:
-                console.log("loan-token is token1")
                 amountOut = await app.sushiRouter.methods.getAmountsOut(app.web3.utils.toWei(app.token1[1]), [app.token1[0]._address, app.token0[0]._address]).call()
                 amountRequiredToRefund = await app.uniRouter.methods.getAmountsIn(app.web3.utils.toWei(app.token1[1]), [app.token0[0]._address, app.token1[0]._address]).call()
                 break
@@ -184,6 +182,57 @@ const app = {
         const data = JSON.stringify(history)
         await fs.writeFileSync("arbitrageHistory.json", data)
         console.log("--------------ArbitrageData updated-----------------")
+    },
+    getBestProfitTokenAmount: async () => {
+        let amountOut
+        let amountRequiredToRefund
+        let possibleProfitSet = []
+
+        loanToken0AmountOut = await app.uniRouter.methods.getAmountsOut(app.web3.utils.toWei("1"), [app.token0[0]._address, app.token1[0]._address]).call()
+        selltoken0AmountOut = await app.sushiRouter.methods.getAmountsOut(app.web3.utils.toWei("1"), [app.token0[0]._address, app.token1[0]._address]).call()
+
+        if (loanToken0AmountOut[1] < selltoken0AmountOut[1]) {
+            app.loanToken = app.token0[0]
+            console.log("loan token 0, swap to token 1 ")
+        } else {
+            app.loanToken = app.token1[0]
+            console.log("loan token 1, swap to token 0 ")
+        }
+        
+
+        for (var i=0; i<=4; i++) {
+            var loanAmount = 0
+            switch (app.loanToken) {
+                case app.token0[0]:
+                    loanAmount = app.token0[2][0] + (app.token0[2][1]-app.token0[2][0])* i / 4                  
+                    amountOut = await app.sushiRouter.methods.getAmountsOut(app.web3.utils.toWei(loanAmount.toString()), [app.token0[0]._address, app.token1[0]._address]).call()
+                    amountRequiredToRefund = await app.uniRouter.methods.getAmountsIn(app.web3.utils.toWei(loanAmount.toString()), [app.token1[0]._address, app.token0[0]._address]).call()
+                    break
+                case app.token1[0]:
+                    loanAmount = app.token1[2][0] + (app.token1[2][1]-app.token1[2][0])* i / 4  
+                    amountOut = await app.sushiRouter.methods.getAmountsOut(app.web3.utils.toWei(loanAmount.toString()), [app.token1[0]._address, app.token0[0]._address]).call()
+                    amountRequiredToRefund = await app.uniRouter.methods.getAmountsIn(app.web3.utils.toWei(loanAmount.toString()), [app.token0[0]._address, app.token1[0]._address]).call()
+                    break
+            }
+            amountOut = amountOut[1]
+            amountRequiredToRefund = amountRequiredToRefund[0]
+            const profitInWei = amountOut - amountRequiredToRefund
+            possibleProfitSet.push({loanAmount: loanAmount, profit: profitInWei})
+        }
+        console.log(possibleProfitSet)  
+        const profitSet = possibleProfitSet.map(ele=>ele.profit)
+        const bestLoanAmount = possibleProfitSet.filter(ele=>{
+            return ele.profit == Math.max(...profitSet)
+        })
+        console.log(`Best loan amount: ${bestLoanAmount[0].loanAmount}`)
+        switch (app.loanToken) {
+            case app.token0[0]:
+                app.token0[1] = bestLoanAmount[0].loanAmount.toString()
+                break
+            case app.token1[0]:
+                app.token1[1] = bestLoanAmount[0].loanAmount.toString()
+                break
+        }
     }
 }
 
