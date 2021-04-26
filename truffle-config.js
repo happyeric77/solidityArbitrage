@@ -13,7 +13,7 @@ module.exports = {
     development: {
       host: "localhost",
       port: 7545,
-      network_id: 1 // Match any network id
+      network_id: '*' // Match any network id
     },
     kovan: {
       provider: ()=> new HDWalletProvider(process.env.MNEMONIC, "https://kovan.infura.io/v3/" + process.env.INFURA_API_KEY, 1),
@@ -22,6 +22,9 @@ module.exports = {
       gasPrice: 5000000000, // 5 Gwei
       skipDryRun: true,
     },
+  },
+  mocha: {
+    reporter: 'eth-gas-reporter',
   },
   compilers: {
     solc: {

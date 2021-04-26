@@ -12,14 +12,16 @@ if (result.error) {
     throw result.error
 }
 
+const TESTNET = process.env.TESTNET === "yes" ? true : false
+
 const app = {
     web3: null,
     accounts: null,
     uniRouter: null,
     sushiRouter: null,
     arbitrage: null,
-    token0: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.1, 0.8], /*token address*/process.env.UNI_KOVAN],
-    token1: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.01, 0.5], /*token address*/process.env.WETH_KOVAN],
+    token0: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[100, 200], /*token address*/process.env.DAI_KOVAN],
+    token1: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.1, 0.5], /*token address*/process.env.WETH_KOVAN],
     weth: null,
     gasPrice: null,
     gasLimit: null,
@@ -47,15 +49,31 @@ const app = {
         }, 30000)        
     },
     loadContractInstances: async (token0, token1) => {
-        app.uniRouter = await new app.web3.eth.Contract(routerJson.abi, process.env.UNISWAP_ROUTER_KOVAN)
-        app.sushiRouter = await new app.web3.eth.Contract(routerJson.abi, process.env.SUSHISWAP_ROUTER_KOVAN)
-        app.arbitrage = await new app.web3.eth.Contract(arbitrageJson.abi, process.env.ARBI_KOVAN)
+        app.uniRouter = await new app.web3.eth.Contract(
+            routerJson.abi, 
+            TESTNET ? process.env.UNISWAP_ROUTER_KOVAN : process.env.UNISWAP_ROUTER_MAIN
+        )
+        app.sushiRouter = await new app.web3.eth.Contract(
+            routerJson.abi, 
+            TESTNET ? process.env.SUSHISWAP_ROUTER_KOVAN : process.env.SUSHISWAP_ROUTER_MAIN
+        )
+        app.arbitrage = await new app.web3.eth.Contract(
+            arbitrageJson.abi, 
+            TESTNET ? process.env.ARBI_KOVAN : process.env.ARBI_MAIN
+        )
         app.token1[0] = await new app.web3.eth.Contract(erc20Json.abi, token1)
         app.token0[0] = await new app.web3.eth.Contract(erc20Json.abi, token0) 
-        app.weth = await new app.web3.eth.Contract(erc20Json.abi, process.env.WETH_KOVAN)
+        app.weth = await new app.web3.eth.Contract(
+            erc20Json.abi, 
+            TESTNET ? process.env.WETH_KOVAN : process.env.WETH_MAIN
+        )
     },
     getWeb3: async () => {
-        const provider = await new HDWalletProvider(process.env.MNEMONIC, "https://kovan.infura.io/v3/" + process.env.INFURA_API_KEY, 1)
+        const provider = await new HDWalletProvider(
+            process.env.MNEMONIC, 
+            TESTNET ? "https://kovan.infura.io/v3/" + process.env.INFURA_API_KEY : "hhttps://mainnet.infura.io/v3/" + process.env.INFURA_API_KEY, 
+            1
+        )
         
         app.web3 = new Web3(provider);
         app.accounts = await app.web3.eth.getAccounts()
@@ -172,11 +190,16 @@ const app = {
         await app.saveDataJson(summery)
     },
     saveDataJson: async (dataRaw) => {
-        let historyRaw = await fs.readFileSync("arbitrageHistory.json")
+        let historyRaw = await fs.readFileSync(
+            TESTNET ? "arbitrageHistoryKovan.json" : "arbitrageHistory.json"
+        )
         let history = JSON.parse(historyRaw)
         history.push(dataRaw)
         const data = JSON.stringify(history)
-        await fs.writeFileSync("arbitrageHistory.json", data)
+        await fs.writeFileSync(
+            TESTNET ? "arbitrageHistoryKovan.json" : "arbitrageHistory.json", 
+            data
+        )
         console.log("--------------ArbitrageData updated-----------------")
     },
     getBestProfitTokenAmount: async () => {
