@@ -18,7 +18,8 @@ module.exports = function (deployer) {
     deployer.deploy(
         Arbitrage, 
         TESTNET ? process.env.UNISWAP_FACTORY_KOVAN : process.env.UNISWAP_FACTORY_MAIN, 
-        TESTNET ? process.env.SUSHISWAP_ROUTER_KOVAN : process.env.SUSHISWAP_ROUTER_MAIN
+        TESTNET ? process.env.SUSHISWAP_ROUTER_KOVAN : process.env.SUSHISWAP_ROUTER_MAIN,
+        // TESTNET ? process.env.SUSHISWAP_FACTORY_KOVAN : process.env.SUSHISWAP_FACTORY_MAIN,
     );
     // deployer.deploy(Dai)
     // deployer.deploy(Weth)

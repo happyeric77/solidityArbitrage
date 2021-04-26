@@ -48,4 +48,27 @@ contract ("My contract test", async accounts=>{
             {from: accounts[1]}
         )).to.be.rejected
     })
+
+    it("Should be able to get reserves from uniswap", async () => {
+        let reserves = await arbitrageInstance.getCurrentUniReserves(
+            TESTNET ? process.env.DAI_KOVAN : process.env.DAI_MAIN,
+            TESTNET ? process.env.WETH_KOVAN : process.env.WETH_MAIN,
+        )        
+        expect(reserves.reserve0).to.not.equal(new BN(0))
+        expect(reserves.reserve1).to.not.equal(new BN(0))
+    })
+
+    // it("Should be able to get reserves from sushiswap", async () => {
+    //     let sushiReserves = await arbitrageInstance.getCurrentSushiReserves(
+    //         TESTNET ? process.env.DAI_KOVAN : process.env.DAI_MAIN,
+    //         TESTNET ? process.env.WETH_KOVAN : process.env.WETH_MAIN,
+    //     )
+    //     // console.log(sushiReserves.reserve0.toString())
+    //     console.log(sushiReserves)
+
+    //     expect(arbitrageInstance.getCurrentSushiReserves(
+    //         TESTNET ? process.env.DAI_KOVAN : process.env.DAI_MAIN,
+    //         TESTNET ? process.env.WETH_KOVAN : process.env.WETH_MAIN,
+    //     ) ).to.be.fulfilled
+    // })
 })

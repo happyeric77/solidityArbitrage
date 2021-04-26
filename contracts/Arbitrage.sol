@@ -9,6 +9,7 @@ import "@uniswap/v2-core/contracts/interfaces/IERC20.sol";
 
 contract Arbitrage {
     address public factory;
+    address public sushiFactory;
     address public owner;
     uint deadline = now + 10 days;
     IUniswapV2Router02 public sushiRouter;
@@ -18,9 +19,10 @@ contract Arbitrage {
     event amountInInfo(uint first, uint second);
     event testObject(address addr, uint payback);
 
-    constructor(address _factory, address _sushiRouter) public {
+    constructor(address _factory, address _sushiRouter/*, address _sushiFactory*/) public {
         owner = msg.sender;
         factory = _factory;  
+        // sushiFactory = _sushiFactory;
         sushiRouter = IUniswapV2Router02(_sushiRouter);
     }
 
@@ -88,4 +90,5 @@ contract Arbitrage {
 
         emit amountInInfo(amountRequired, amountReceived-amountRequired);
     }
+
 }

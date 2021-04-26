@@ -2,6 +2,8 @@ const arbitrageJson = require("./contracts/Arbitrage.json")
 const erc20Json = require("./contracts/Dai.json")
 const routerJson = require("./contracts/Router.json")
 const Web3 = require("web3")
+const { ChainId, Fetcher: sushiFetcher} = require("@sushiswap/sdk");
+const { Fetcher: uniFetcher} = require("@uniswap/sdk");
 const HDWalletProvider = require("@truffle/hdwallet-provider");
 const fs = require('fs')
 path = require("path")
@@ -20,9 +22,12 @@ const app = {
     uniRouter: null,
     sushiRouter: null,
     arbitrage: null,
-    token0: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[100, 200], /*token address*/process.env.DAI_KOVAN],
-    token1: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.1, 0.5], /*token address*/process.env.WETH_KOVAN],
+    token0: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.0001, null], /*token address*/process.env.DAI_KOVAN],
+    token1: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.0001, null], /*token address*/process.env.WETH_KOVAN],
+    reservesInUni: null,
+    reservesInSushi: null,
     weth: null,
+    estimateTxFee: "0.0004145", 
     gasPrice: null,
     gasLimit: null,
     gasUsed: null,
@@ -37,6 +42,8 @@ const app = {
         
         let isProfitable
         setInterval(async()=>{
+            await app.decideLoanSellDirection()
+            await app.getBestLoanAmount()
             try{
                 await app.getBestProfitTokenAmount()
                 await app.fetchGasInfo()
@@ -84,18 +91,21 @@ const app = {
         try {
             switch (app.loanToken) {
                 case app.token0[0]:
-                    app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, app.web3.utils.toWei(app.token0[1]), 0).estimateGas()
+                    app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, app.web3.utils.toWei(app.token0[1]), 0).estimateGas({from: app.accounts[0]})
+                    console.log(`estimated gasLimit: ${app.gasLimit}`)
                     break
                 case app.token1[0]:
-                    app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, 0, app.web3.utils.toWei(app.token1[1])).estimateGas()
+                    app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, 0, app.web3.utils.toWei(app.token1[1])).estimateGas({from: app.accounts[0]})
+                    console.log(`estimated gasLimit: ${app.gasLimit}`)
                     break
             }
+            const transactionFeeInWei = app.gasLimit * app.gasPrice
+            app.transactionFee = app.web3.utils.fromWei(transactionFeeInWei.toString())
+            isProfitable = true
         } catch (err) {
             console.log(`Error: app.fetchGasInfo.stargArbitrage. Price gap migt be to small Detail: ${err}`)
-        }        
-
-        const transactionFeeInWei = app.gasLimit * app.gasPrice
-        app.transactionFee = app.web3.utils.fromWei(transactionFeeInWei.toString())
+            throw err
+        }
     },
     assertProfit: async () =>{
         let amountOut
@@ -207,27 +217,16 @@ const app = {
         let amountRequiredToRefund
         let possibleProfitSet = []
 
-        loanToken0AmountOut = await app.uniRouter.methods.getAmountsOut(app.web3.utils.toWei("0.01"), [app.token0[0]._address, app.token1[0]._address]).call()
-        selltoken0AmountOut = await app.sushiRouter.methods.getAmountsOut(app.web3.utils.toWei("0.01"), [app.token0[0]._address, app.token1[0]._address]).call()
-
-        if (loanToken0AmountOut[1] < selltoken0AmountOut[1]) {
-            app.loanToken = app.token0[0]
-            console.log(`loan token 0 (${app.token0[0]._address}),\nswap to token 1 (${app.token1[0]._address}) `)
-        } else {
-            app.loanToken = app.token1[0]
-            console.log(`loan token 1 (${app.token1[0]._address}),\nswap to token 0 (${app.token0[0]._address})`)
-        }
-
         for (var i=0; i<=4; i++) {
             var loanAmount = 0
             switch (app.loanToken) {
                 case app.token0[0]:
-                    loanAmount = app.token0[2][0] + (app.token0[2][1]-app.token0[2][0])* i / 4                  
+                    loanAmount = app.token0[2][0] + (app.token0[2][1]-app.token0[2][0])* i / 4          
                     amountOut = await app.sushiRouter.methods.getAmountsOut(app.web3.utils.toWei(loanAmount.toString()), [app.token0[0]._address, app.token1[0]._address]).call()
                     amountRequiredToRefund = await app.uniRouter.methods.getAmountsIn(app.web3.utils.toWei(loanAmount.toString()), [app.token1[0]._address, app.token0[0]._address]).call()
                     break
                 case app.token1[0]:
-                    loanAmount = app.token1[2][0] + (app.token1[2][1]-app.token1[2][0])* i / 4  
+                    loanAmount = app.token1[2][0] + (app.token1[2][1]-app.token1[2][0])* i / 4
                     amountOut = await app.sushiRouter.methods.getAmountsOut(app.web3.utils.toWei(loanAmount.toString()), [app.token1[0]._address, app.token0[0]._address]).call()
                     amountRequiredToRefund = await app.uniRouter.methods.getAmountsIn(app.web3.utils.toWei(loanAmount.toString()), [app.token0[0]._address, app.token1[0]._address]).call()
                     break
@@ -251,6 +250,59 @@ const app = {
                 app.token1[1] = bestLoanAmount[0].loanAmount.toString()
                 break
         }
+    },
+    decideLoanSellDirection: async () => {
+        const network = TESTNET ? ChainId.KOVAN : ChainId.MAINNET
+        let sushitoken0data = await sushiFetcher.fetchTokenData(network, app.token0[0]._address)
+        let sushitoken1data = await sushiFetcher.fetchTokenData(network, app.token1[0]._address)
+        const sushipair = await sushiFetcher.fetchPairData(sushitoken0data, sushitoken1data)
+        let sushiReserve0 = Number(sushipair.reserve0.toExact())
+        let sushiReserve1 = Number(sushipair.reserve1.toExact())
+
+        let unitoken0data = await uniFetcher.fetchTokenData(network, app.token0[0]._address)
+        let unitoken1data = await uniFetcher.fetchTokenData(network, app.token1[0]._address)
+        const unipair = await uniFetcher.fetchPairData(unitoken0data, unitoken1data)
+        let uniReserve0 = Number(unipair.reserve0.toExact())
+        let uniReserve1 = Number(unipair.reserve1.toExact())
+
+        let noSlippagePriceUni = uniReserve1/uniReserve0
+        let noSlippagePriceSushi = sushiReserve1/sushiReserve0
+        console.log(`Price in Uniswap (token0->token1): ${noSlippagePriceUni}`)
+        console.log(`Price in Sushiswap (token0->token1): ${noSlippagePriceSushi}`)
+
+        if (noSlippagePriceUni < noSlippagePriceSushi ) {
+            app.loanToken = app.token0[0]
+            console.log(`loan token 0 (${app.token0[0]._address}),\nswap to token 1 (${app.token1[0]._address}) `)
+        } else {
+            app.loanToken = app.token1[0]
+            console.log(`loan token 1 (${app.token1[0]._address}),\nswap to token 0 (${app.token0[0]._address}) `)
+        }
+        app.reservesInUni = [uniReserve0, uniReserve1]
+        app.reservesInSushi = [sushiReserve0, sushiReserve1]
+    },
+    getBestLoanAmount: async() => {
+        console.log("Start calculating the max loan amount")
+        switch (app.loanToken) {
+            case app.token0[0]:
+                app.token0[2][1] = await app.calcMaxLoanAmount(0,1)
+                break
+            case app.token1[0]:
+                app.token1[2][1] = await app.calcMaxLoanAmount(1,0)
+                break
+        }
+    },
+    calcMaxLoanAmount: async(tokenLoan, tokenToSwap) => {
+        let maxLoanAmount
+        for (var amount = 0.01; amount <= app.reservesInSushi[tokenLoan]; amount += 0.01) {
+            let slippagePriceInSushi = amount * app.reservesInSushi[tokenToSwap] / (app.reservesInSushi[tokenLoan] + amount) 
+            let slippagePriceInUni = amount * app.reservesInUni[tokenToSwap] / (app.reservesInUni[tokenLoan] + amount)
+            if (slippagePriceInUni > slippagePriceInSushi) {
+                maxLoanAmount = amount
+                console.log(`Max profitable loan amount is ${maxLoanAmount.toString()}`)
+                break
+            }
+        }
+        return maxLoanAmount
     }
 }
 
