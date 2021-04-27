@@ -90,5 +90,4 @@ contract Arbitrage {
 
         emit amountInInfo(amountRequired, amountReceived-amountRequired);
     }
-
 }

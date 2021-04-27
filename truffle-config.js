@@ -16,10 +16,17 @@ module.exports = {
       network_id: '*' // Match any network id
     },
     kovan: {
-      provider: ()=> new HDWalletProvider(process.env.MNEMONIC, "https://kovan.infura.io/v3/" + process.env.INFURA_API_KEY, 1),
+      provider: ()=> new HDWalletProvider(process.env.MNEMONIC, "https://kovan.infura.io/v3/" + process.env.INFURA_API_KEY, 0),
       network_id: 42,
       gas: 5000000,
       gasPrice: 5000000000, // 5 Gwei
+      skipDryRun: true,
+    },
+    main: {
+      provider: ()=> new HDWalletProvider(process.env.MNEMONIC, "https://mainnet.infura.io/v3/" + process.env.INFURA_API_KEY, 0),
+      network_id: 1,
+      gas: 1210573,
+      gasPrice: 30000000000, // 5 Gwei
       skipDryRun: true,
     },
   },
@@ -33,7 +40,7 @@ module.exports = {
   },
   solc: {
     optimizer: {
-      enabled: false,
+      enabled: true,
       runs: 200
     }
   }
