@@ -52,7 +52,7 @@ const app = {
                 console.log(`Fail to check (app.init), reason: \n${err} `)                
             }           
             if (isProfitable) {app.startArbitrage()}
-        }, 30000)        
+        }, 20000)        
     },
     loadContractInstances: async (token0, token1) => {
         app.uniRouter = await new app.web3.eth.Contract(

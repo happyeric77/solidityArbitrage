@@ -1,4 +1,4 @@
-const arbitrageJson = require("../src/contracts/Arbitrage.json")
+const execute = require('child_process').exec
 const erc20Json = require("../src/contracts/Dai.json")
 const routerJson = require("../src/contracts/Router.json")
 const Web3 = require("web3")
@@ -8,6 +8,7 @@ const HDWalletProvider = require("@truffle/hdwallet-provider");
 const fs = require('fs')
 path = require("path")
 const dotenv = require('dotenv');
+const { exec } = require('child_process');
 result = dotenv.config({ path: path.resolve("./.env") });
 if (result.error) {
     console.log("Fail to load .env varilable: tokenMonitor.js")
@@ -136,7 +137,7 @@ const app = {
             loanToken: app.loanToken._address,
             swapToToken: app.loanToken._address === app.token0[0]._address? app.token1[0]._address : app.token0[0]._address,
             maxSlippage: app.maxSlippage,
-            loanAmount: app.loanToken[1],
+            loanAmount: app.loanToken._address === app.token0[0]._address? app.token0[1] : app.token1[1],
             timestamp: nowTime.toString(),
             estimateGasUsed: app.estimateGasUsed,
             gasPrice: app.gasPrice,
@@ -162,6 +163,7 @@ const app = {
             TESTNET ? path.resolve("./utils/srcData/detailTrackingyKovan.json") : path.resolve("./utils/srcData/detailTracking.json"), 
             data
         )
+        execute(process.env.PYTHON + " " + path.resolve("./utils/performanceCalc.py"))
         console.log("--------------detailTracking File updated-----------------")
     },
     getBestProfitTokenAmount: async () => {

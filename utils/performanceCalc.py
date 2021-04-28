@@ -32,6 +32,8 @@ if __name__ == "__main__":
     with open(moniSrcData_dir) as file:
         detailData = json.load(file)
         df_detailData = pandas.DataFrame(detailData)
+        if df_detailData["isProfitable"].size > 20000:
+            df_detailData = df_detailData[:][-20000:]
         df_detailData.to_excel(moniOutData_dir)
     
 
