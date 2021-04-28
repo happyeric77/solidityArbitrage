@@ -1,6 +1,6 @@
-const arbitrageJson = require("./contracts/Arbitrage.json")
-const erc20Json = require("./contracts/Dai.json")
-const routerJson = require("./contracts/Router.json")
+const arbitrageJson = require("../src/contracts/Arbitrage.json")
+const erc20Json = require("../src/contracts/Dai.json")
+const routerJson = require("../src/contracts/Router.json")
 const Web3 = require("web3")
 const { ChainId, Fetcher: sushiFetcher} = require("@sushiswap/sdk");
 const { Fetcher: uniFetcher} = require("@uniswap/sdk");
@@ -22,36 +22,38 @@ const app = {
     uniRouter: null,
     sushiRouter: null,
     arbitrage: null,
-    token0: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.0001, null], /*token address*/process.env.DAI_KOVAN],
-    token1: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.0001, null], /*token address*/process.env.WETH_KOVAN],
+    token0: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.0001, null], /*token address*/process.env.DAI_MAIN],
+    token1: [/*token instance:*/null, /*best profit loan amount:*/null, /*possible loan amount range*/[0.0001, null], /*token address*/process.env.WETH_MAIN],
     reservesInUni: null,
     reservesInSushi: null,
     weth: null,
     maxSlippage: 0.15, 
     gasPrice: null,
     gasLimit: null,
+    estimateGasUsed: 192278,
     gasUsed: null,
     transactionFee: null,
     loanToken: null,
     wethProfit: null,
     arbiTx: null,
     txGoneTrough: null,
+    isProfitable: false,
     init: async () => {
         await app.getWeb3()
         await app.loadContractInstances(app.token0[3], app.token1[3])
         
-        let isProfitable
         setInterval(async()=>{
-            await app.decideLoanSellDirection()
+            app.isProfitable = false
+            await app.decideLoanSellDirection()            
+            await app.getBestProfitTokenAmount()
+            await app.fetchGasInfo()
             try{
-                await app.getBestProfitTokenAmount()
-                await app.fetchGasInfo()
-                isProfitable = await app.assertProfit()                
+                app.isProfitable = await app.assertProfit()
             } catch(err) {
-                isProfitable = false
-                console.log(`Fail to check (app.init), reason: \n${err} `)                
-            }           
-            if (isProfitable) {app.startArbitrage()}
+                app.isProfitable = false
+                console.log(`Fail to check beacuse no profit (app.init), reason: \n${err} `)                
+            } 
+            app.summerize() 
         }, 30000)        
     },
     loadContractInstances: async (token0, token1) => {
@@ -62,10 +64,6 @@ const app = {
         app.sushiRouter = await new app.web3.eth.Contract(
             routerJson.abi, 
             TESTNET ? process.env.SUSHISWAP_ROUTER_KOVAN : process.env.SUSHISWAP_ROUTER_MAIN
-        )
-        app.arbitrage = await new app.web3.eth.Contract(
-            arbitrageJson.abi, 
-            TESTNET ? process.env.ARBI_KOVAN : process.env.ARBI_MAIN
         )
         app.token1[0] = await new app.web3.eth.Contract(erc20Json.abi, token1)
         app.token0[0] = await new app.web3.eth.Contract(erc20Json.abi, token0) 
@@ -87,24 +85,8 @@ const app = {
     },
     fetchGasInfo: async () => {
         app.gasPrice = await app.web3.eth.getGasPrice()
-        try {
-            switch (app.loanToken) {
-                case app.token0[0]:
-                    app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, app.web3.utils.toWei(app.token0[1]), 0).estimateGas({from: app.accounts[0]})
-                    console.log(`estimated gasLimit: ${app.gasLimit}`)
-                    break
-                case app.token1[0]:
-                    app.gasLimit = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, 0, app.web3.utils.toWei(app.token1[1])).estimateGas({from: app.accounts[0]})
-                    console.log(`estimated gasLimit: ${app.gasLimit}`)
-                    break
-            }
-            const transactionFeeInWei = app.gasLimit * app.gasPrice
-            app.transactionFee = app.web3.utils.fromWei(transactionFeeInWei.toString())
-            isProfitable = true
-        } catch (err) {
-            console.log(`Error: app.fetchGasInfo.stargArbitrage. Price gap migt be to small Detail: ${err}`)
-            throw err
-        }
+        const transactionFeeInWei = app.estimateGasUsed * app.gasPrice
+        app.transactionFee = app.web3.utils.fromWei(transactionFeeInWei.toString())        
     },
     assertProfit: async () =>{
         let amountOut
@@ -145,71 +127,42 @@ const app = {
         console.log(`Profitable: ${profitMessage}`)
         return profitable
     },
-    startArbitrage: async () =>{
-        console.log("StartArbitrage...")
-        switch (app.loanToken) {
-            case app.token0[0]:
-                await app.runArbitrage(app.web3.utils.toWei(app.token0[1]), 0)
-                break
-            case app.token1[0]:
-                await app.runArbitrage(0, app.web3.utils.toWei(app.token1[1]))
-                break
-        }
-        await app.summerize()
-    },
-    runArbitrage: async (pos1, pos2) => {
-        try {
-            tx = await app.arbitrage.methods.startArbitrage(app.token0[0]._address, app.token1[0]._address, pos1, pos2).send({
-                from: app.accounts[0],
-                gas: app.gasLimit,
-                gasPrice: app.gasPrice
-            })
-            console.log("Arbigrate done successfully, congraduration!")
-            
-            app.gasUsed = tx.gasUsed
-            app.arbiTx = tx.transactionHash
-            app.txGoneTrough = true
-            
-        } catch (err) {
-            console.log(err.receipt)
-            console.log("Arbitrage implement fail")
-
-            app.gasUsed = err.receipt.gasUsed
-            app.arbiTx = err.receipt.transactionHash
-            app.txGoneTrough = false
-        } 
-    },
     summerize: async () => {
         let nowTime = Date(Date.now())
-        let txFeeInWei = app.gasUsed * app.gasPrice
+        let txFeeInWei = app.estimateGasUsed * app.gasPrice
         let txFee = app.web3.utils.fromWei(txFeeInWei.toString())
         const summery = {
-            txSucceeded: app.txGoneTrough,
+            isProfitable: app.isProfitable,
+            loanToken: app.loanToken._address,
+            swapToToken: app.loanToken._address === app.token0[0]._address? app.token1[0]._address : app.token0[0]._address,
+            maxSlippage: app.maxSlippage,
+            loanAmount: app.loanToken[1],
             timestamp: nowTime.toString(),
-            txHash: app.arbiTx,
+            estimateGasUsed: app.estimateGasUsed,
+            gasPrice: app.gasPrice,
             txFee: txFee,
-            profitInWeth: app.txGoneTrough ? app.wethProfit-txFee : -(txFee),
+            profitInWei: app.wethProfit,
+            netProfitInWeth: app.wethProfit-txFee,
         }
-        console.log(`Tx succeeded: ${summery.txSucceeded}`)
-        console.log(`Tx Hash ${summery.txHash}`)
+        console.log(`Profitable : ${summery.isProfitable}`)
         console.log(`Tx Fee: ${summery.txFee}`)
-        console.log(`Profit (WETH): ${summery.profitInWeth}`)  
+        console.log(`gross Profit (WETH): ${summery.profitInWeth}`) 
+        console.log(`net Profit (WETH): ${summery.netProfitInWeth}`)  
         console.log("-------------------------------------------------------------")
-
         await app.saveDataJson(summery)
     },
     saveDataJson: async (dataRaw) => {
         let historyRaw = await fs.readFileSync(
-            TESTNET ? "arbitrageHistoryKovan.json" : "arbitrageHistory.json"
+            TESTNET ? path.resolve("./utils/srcData/detailTrackingyKovan.json") : path.resolve("./utils/srcData/detailTracking.json")
         )
         let history = JSON.parse(historyRaw)
         history.push(dataRaw)
         const data = JSON.stringify(history)
         await fs.writeFileSync(
-            TESTNET ? "arbitrageHistoryKovan.json" : "arbitrageHistory.json", 
+            TESTNET ? path.resolve("./utils/srcData/detailTrackingyKovan.json") : path.resolve("./utils/srcData/detailTracking.json"), 
             data
         )
-        console.log("--------------ArbitrageData updated-----------------")
+        console.log("--------------detailTracking File updated-----------------")
     },
     getBestProfitTokenAmount: async () => {
         let amountOut
