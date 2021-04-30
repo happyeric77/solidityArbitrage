@@ -1,5 +1,5 @@
 
-const Contract = artifacts.require("./path/to/contract.sol")
+const Arbitrage = artifacts.require("Arbitrage.sol")
 const path = require("path");
 const expect = require("./setupTest")
 
@@ -12,27 +12,40 @@ if (result.error) {
 
 const BN = web3.utils.BN
 
-contract ("My contract test", accounts=>{
-    it("contract test passed", async ()=>{
-        const contractInstance = await Contract.deployed()
+const TESTNET = process.env.TESTNET === "yes" ? true : false
 
-        it("Should be able to have contract address", async ()=>{
-            const contractInstance = await Contract.deployed()
-            expect(contractInstance.address).to.not.equal("")
-            expect(contractInstance.address).to.not.equal(0x0)
-            expect(colorInstance.address).to.not.equal(null)
-            expect(colorInstance.address).to.not.equal(undefined)
-        })
+contract ("My contract test", async accounts=>{
+    let arbitrageInstance
+    it("Should be able to have contract address", async ()=>{
+        arbitrageInstance = await Arbitrage.deployed()
+        expect(arbitrageInstance.address).to.not.equal("")
+        expect(arbitrageInstance.address).to.not.equal(0x0)
+        expect(arbitrageInstance.address).to.not.equal(null)
+        expect(arbitrageInstance.address).to.not.equal(undefined)
+    })
 
-        it("Test others", async ()=>{
-            /* 
-            ** get env var by dotenv (create a .env file in ./ dir)
-            *///--> ex. this.myToken = Token.new(process.env.INITIAL_TOKEN)
+    it("Should be able to do arbitrage by owner", async () =>{
+        let owner = await arbitrageInstance.owner()
+        console.log(`Owner is ${owner}`)
+        console.log(`Caller is ${accounts[0]}`)
+        return expect(arbitrageInstance.startArbitrage(
+            TESTNET ? process.env.DAI_KOVAN : process.env.DAI_MAIN, 
+            TESTNET ? process.env.WETH_KOVAN : process.env.WETH_MAIN, 
+            web3.utils.toWei("1"), 
+            0
+        )).to.be.fulfilled
+    })
 
-            /* 
-            ** Use Chai to do assert 
-            *///--> ex. expect(await instance.balanceOf(accounts[0])).to.be.a.bignumber.equal(totalSupply);
-        })
-        
+    it("Should not be able to do arbitrage others", async () =>{
+        let owner = await arbitrageInstance.owner()
+        console.log(`Owner is ${owner}`)
+        console.log(`Caller is ${accounts[1]}`)
+        return expect(arbitrageInstance.startArbitrage(
+            TESTNET ? process.env.DAI_KOVAN : process.env.DAI_MAIN,
+            TESTNET ? process.env.WETH_KOVAN : process.env.WETH_MAIN,
+            web3.utils.toWei("1"), 
+            0, 
+            {from: accounts[1]}
+        )).to.be.rejected
     })
 })

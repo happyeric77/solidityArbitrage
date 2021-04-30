@@ -9,20 +9,29 @@ import "@uniswap/v2-core/contracts/interfaces/IERC20.sol";
 
 contract Arbitrage {
     address public factory;
+    address public sushiFactory;
+    address public owner;
     uint deadline = now + 10 days;
     IUniswapV2Router02 public sushiRouter;
     
-    event pathSwapInfo(address from, address to, uint tokenAmount);
-    event tokenSwapInfo(address from, address to, uint tokenAmount);
+    // event pathSwapInfo(address from, address to, uint tokenAmount);
+    // event tokenSwapInfo(address from, address to, uint tokenAmount);
     event amountInInfo(uint first, uint second);
     event testObject(address addr, uint payback);
 
-    constructor(address _factory, address _sushiRouter) public {
+    constructor(address _factory, address _sushiRouter/*, address _sushiFactory*/) public {
+        owner = msg.sender;
         factory = _factory;  
+        // sushiFactory = _sushiFactory;
         sushiRouter = IUniswapV2Router02(_sushiRouter);
     }
 
-    function startArbitrage(address token0, address token1, uint amount0, uint amount1) external {
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner allows to call this method");
+        _;
+    }
+
+    function startArbitrage(address token0, address token1, uint amount0, uint amount1) external onlyOwner {
         address pairAddress = IUniswapV2Factory(factory).getPair(token0, token1);
         require(pairAddress != address(0), 'This pool does not exist');
         IUniswapV2Pair(pairAddress).swap(
@@ -34,10 +43,8 @@ contract Arbitrage {
     }
 
     function uniswapV2Call(address _sender, uint _amount0, uint _amount1, bytes calldata _data) external {
-
-        address[] memory path = new address[](2);
         uint amountToken = _amount0 == 0 ? _amount1 : _amount0;
-        
+        address[] memory path = new address[](2);        
         address token0 = IUniswapV2Pair(msg.sender).token0();
         address token1 = IUniswapV2Pair(msg.sender).token1();
 
@@ -55,10 +62,10 @@ contract Arbitrage {
         
         token.approve(address(sushiRouter), amountToken);
         
-        uint allowed = token.allowance(address(this), address(sushiRouter));
+        // uint allowed = token.allowance(address(this), address(sushiRouter));
 
         // STEP1 : GET Input Amount of token
-            //Calculate needed input by given output amount (0.01 dai)
+        //Calculate needed input by given output amount (0.01 dai)
         address[] memory reversePath = new address[](2);
         reversePath[0] = path[1];
         reversePath[1] = path[0];
@@ -77,20 +84,10 @@ contract Arbitrage {
             deadline
         )[1];
         
-        // The fee for flashSwap is .003 / .997 ≈ 0.3009027% (https://uniswap.org/docs/v2/smart-contract-integration/using-flash-swaps/)
-        // uint payback = amountToken*100301/100000;
-        // token.transfer(msg.sender, payback);
-
-        // comaring with flashloan, flashswap seems need not to pay fee bacuase it is included in swap fee.
         targetToken.transfer(msg.sender, amountRequired);
-        // targetToken.transfer(msg.sender, amountRequired*100301/100000);
-        
 
         targetToken.transfer(tx.origin, amountReceived-amountRequired);
 
-        emit pathSwapInfo(address(token), address(targetToken), amountToken);
-        emit tokenSwapInfo(address(path[0]), address(path[1]), amountToken);
-        emit amountInInfo(amountRequired, allowed);
-        emit testObject(address(this), amountReceived-amountRequired);
+        emit amountInInfo(amountRequired, amountReceived-amountRequired);
     }
 }
